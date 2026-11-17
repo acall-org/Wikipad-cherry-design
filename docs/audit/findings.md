@@ -33,6 +33,8 @@ named in the audit request.
 **Status values.** `open`: confirmed by reading the code path from input to sink.
 `unverified`: plausible, but dependent on server configuration or on behaviour that could not be
 confirmed without execution.
+`accepted risk`: confirmed, and deliberately not fixed by decision of the project owner, under the
+conditions stated in the finding (see section 7).
 
 **Severity scale.** Critical, High, Medium, Low, Informational. Preconditions (authentication,
 non-default configuration flag) are stated in each finding.
@@ -58,7 +60,7 @@ All paths below are relative to the repository root.
 | SEC-008 | Path traversal in page identifier `id` | `website/pages.php:100,138,183,242-245` | 22 | Medium | open |
 | SEC-009 | Reflected XSS through `id` and `title` (authenticated victim) | `website/includes/functions.php:171,178` | 79 | Medium | open |
 | SEC-010 | Reflected XSS through search `query` in pagination links | `website/search.php:433-434` | 79 | Medium | open |
-| SEC-011 | Stored XSS: page content and page title are emitted as raw HTML | `website/includes/parser.php:964-966,1364-1380` | 79 | Medium | open |
+| SEC-011 | Stored XSS: page content and page title are emitted as raw HTML | `website/includes/parser.php:964-966,1364-1380` | 79 | Medium | accepted risk (content); open (title) |
 | SEC-012 | XSS in file views through file name, extension and `upload[referer]` | `website/files.php:127,191-242` | 79 | Low | unverified |
 | SEC-013 | Open redirect after login through `user[referer]` | `website/login.php:65` | 601 | Medium | open |
 | SEC-014 | Open redirect through `id` when `rewrite_flag` is enabled | `website/includes/functions.php:458` | 601 | Low | open |
@@ -94,6 +96,7 @@ All paths below are relative to the repository root.
 - **Minimal fix:** Remove the default password from the distributed configuration. Store only a
   `password_hash()` value (available in PHP 5.5 and later) and verify with `password_verify()`.
   Refuse login while no hash is configured. Update `README.md` accordingly.
+- **Dependency:** the accepted risk in SEC-011 (a) depends on the fix of this finding.
 - **Status:** open.
 
 ### SEC-002: Unrestricted file upload permits remote code execution
@@ -139,6 +142,7 @@ All paths below are relative to the repository root.
 - **Minimal fix:** Read state-changing input only from `$_POST`. Add a per-login random token
   (generated with `openssl_random_pseudo_bytes()` on PHP 5.6) as a hidden field to the edit,
   upload, export and logout forms, and verify it with `hash_equals()` before any write or delete.
+- **Dependency:** the accepted risk in SEC-011 (a) depends on the fix of this finding.
 - **Status:** open.
 
 ### SEC-004: Arbitrary file deletion through path traversal in `upload[filename]`
@@ -188,6 +192,7 @@ All paths below are relative to the repository root.
   and set a session flag on successful login; call `session_destroy()` on logout; configure the
   session cookie with `HttpOnly`, `Secure` (when HTTPS is used) and `SameSite=Lax`. Use `===` or
   `hash_equals()` for all credential comparisons.
+- **Dependency:** the accepted risk in SEC-011 (a) depends on the fix of this finding.
 - **Status:** open. Item 4 was not reproduced and applies only to credentials whose MD5 value has
   numeric form.
 
@@ -305,24 +310,32 @@ All paths below are relative to the repository root.
   the title sources `website/pages.php:250-251,291`, `website/blog.php:323,410,439-440,522` and
   `website/export.php:655-656,732`.
 - **CWE:** CWE-79.
-- **Severity:** Medium.
-- **Description:** Text blocks are first encoded with `htmlspecialchars()` and later decoded again
-  by `parse_special_characters()`. The content of `<nowiki>` blocks is never encoded. The page
-  title (first line of the page file) is inserted into `<title>` and `<h1>` without encoding.
-  Consequently any HTML, including script elements, that is stored in a page is delivered
-  unchanged to every visitor and is also written into the exported static site. The help page
-  `website/pages/help.txt` documents `<nowiki>`, so raw HTML appears to be an intended feature.
+- **Severity:** Medium while SEC-001, SEC-003 and SEC-005 are open; Low for part (a) after those
+  three findings are fixed, because authorship is then restricted to the administrator.
+- **Description:** The finding has two parts.
+  - **(a) Page content.** Text blocks are first encoded with `htmlspecialchars()` and later
+    decoded again by `parse_special_characters()`. The content of `<nowiki>` blocks is never
+    encoded, and the image caption is emitted unencoded. Consequently any HTML, including script
+    elements, that is stored in a page is delivered unchanged to every visitor and is also written
+    into the exported static site. The help page `website/pages/help.txt` documents `<nowiki>`;
+    raw HTML is an intended feature.
+  - **(b) Page title.** The page title (first line of the page file, in the form `= Title =`) is
+    inserted into `<title>` and `<h1>` without encoding. The title is plain text and is not a
+    documented HTML feature.
 - **Exploit scenario:** Only the administrator can store pages directly. An attacker without
   credentials uses CSRF (SEC-003) or the default credentials (SEC-001) to store a page that
   contains a script element. The script is then executed in the browser of every visitor of that
   page, including the administrator.
-- **Minimal fix:** Encode the title at the point of output
-  (`htmlspecialchars(..., ENT_QUOTES, "UTF-8")` in `view_page()`, `view_record()`, `view_blog()`
-  and `export_wiki()`). For page content, a decision by the project owner is required: either
-  remove the decoding step and the `<nowiki>` pass-through (this changes documented behaviour), or
-  retain raw HTML as a feature and rely on the fixes for SEC-001, SEC-003 and SEC-005 to restrict
-  authorship to the administrator.
-- **Status:** open.
+- **Minimal fix:**
+  - (a) None. No change to `website/includes/parser.php` is planned (see the decision below).
+  - (b) Encode the title at the point of output (`htmlspecialchars(..., ENT_QUOTES, "UTF-8")` in
+    `view_page()`, `view_record()`, `view_blog()` and `export_wiki()`).
+- **Decision (2026-11-17, project owner):** raw HTML in page content is retained as a feature.
+  The risk of part (a) is accepted on the condition that SEC-001, SEC-003 and SEC-005 are fixed,
+  so that only the administrator can store page content. Until those three findings are fixed,
+  part (a) remains exploitable through default credentials, CSRF and reuse of the authentication
+  cookie. The decision concerns page content only; it does not cover part (b).
+- **Status:** (a) accepted risk; (b) open.
 
 ### SEC-012: XSS in file views through file name, extension and `upload[referer]`
 
@@ -616,3 +629,9 @@ Examined partially:
 Not available for examination: the production web-server configuration, `php.ini`, the list of
 installed PHP extensions, the content of the upload directory `website/files/` and of the cache
 directory `website/temp/` on the production system.
+
+## 7. Decisions
+
+| Date | Finding | Decision | Decided by | Conditions |
+|---|---|---|---|---|
+| 2026-11-17 | SEC-011 (a), raw HTML in page content | Retained as a feature; risk accepted; no change to the parser | Project owner | SEC-001, SEC-003 and SEC-005 must be fixed. SEC-011 (b), encoding of the page title, is not covered and remains open. |
